@@ -66,6 +66,10 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Exclude /api/* so machine-to-machine routes (Vercel Cron hitting
+    // /api/cron/keep-alive, webhooks, etc.) bypass the session-refresh
+    // step. Without this exclusion, updateSession runs on every API
+    // request and silently breaks unauthenticated hits like the cron.
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
