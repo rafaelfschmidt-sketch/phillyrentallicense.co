@@ -1,35 +1,42 @@
-// Vercel Cron weekly ping to keep the Supabase project from auto-pausing
-// after 7 days of inactivity (free tier). Hits Supabase's REST API directly
-// so this route doesn't depend on any specific supabase-js client setup
-// already in the repo — just needs the env vars to be present.
+// ============================================================================
+// GET /api/cron/keep-alive
+// ============================================================================
+// Touches Supabase with a cheap read so the project's idle clock resets.
+// Without this, free-tier Supabase pauses the project after ~7 days of zero
+// traffic; reactivation takes a minute and any cron / form submission in
+// that window 500s.
+//
+// Configured via vercel.json to run daily. Vercel cron requests carry an
+// Authorization: Bearer <CRON_SECRET> header — we verify it so the
+// endpoint can't be hammered by a random caller.
+// ============================================================================
 
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase-server";
+
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) {
-    return Response.json(
-      { ok: false, reason: "missing-supabase-env" },
-      { status: 500 },
-    );
+export async function GET(req: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (secret) {
+    const provided = req.headers.get("authorization");
+    if (provided !== `Bearer ${secret}`) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
   }
 
-  // Any read counts as activity. We hit the REST root which returns the
-  // OpenAPI definition — cheapest possible touch on the database.
-  const resp = await fetch(`${url}/rest/v1/`, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-    },
-  });
+  // Cheap head-only count against an existing table. We don't care about
+  // the value — the point is to roundtrip a query so the connection stays
+  // warm and Supabase's idle timer resets.
+  const { error } = await supabaseAdmin
+    .from("rental_license_applications")
+    .select("id", { count: "exact", head: true });
 
-  return Response.json({
-    ok: resp.ok,
-    status: resp.status,
-    touched_at: new Date().toISOString(),
-  });
+  if (error) {
+    console.error("[cron/keep-alive] supabase ping failed", error);
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, ts: new Date().toISOString() });
 }
