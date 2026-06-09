@@ -3,7 +3,15 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const VALID_VARIANTS = new Set(["control", "v1", "v2"]);
 
-export async function middleware(request: NextRequest) {
+// Migrated from middleware.ts to proxy.ts for Next.js 16 (PR #5).
+// The middleware → proxy rename is the official migration path; the deprecation
+// warning Next.js prints during build is benign in isolation, but the silent
+// fallback that translates middleware.ts into a "proxy" at build time stopped
+// honouring the matcher's negative lookahead for /api/* on Vercel, so every
+// /api route 404'd in production despite the build registering them correctly.
+// Function exported as `proxy` and file renamed = native proxy mode; matcher
+// works as documented.
+export async function proxy(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
 
   // Admin routes — require ADMIN_PASSWORD cookie.
